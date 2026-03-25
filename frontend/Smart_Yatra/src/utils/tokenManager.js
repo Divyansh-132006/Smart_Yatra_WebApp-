@@ -1,6 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const baseurl = 'http://localhost:3000/api';
+import { API_ENDPOINTS } from '../config/api';
 
 export const TokenManager = {
   // Store tokens
@@ -66,7 +65,7 @@ export const TokenManager = {
         throw new Error('No refresh token available');
       }
 
-      const response = await fetch(`${baseurl}/tourists/auth/refresh`, {
+      const response = await fetch(API_ENDPOINTS.REFRESH_TOKEN, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -4,9 +4,9 @@ const AuthoritySchema = new Schema(
     {
         name: { type: String, required: true },
         email: { type: String, required: true, unique: true },
-        phone: { type: String, required: true },
+        phone: { type: String, required: true, unique: true },
         password_hash: { type: String, required: true },
-        idnumber: { type: String, required: true },
+        idnumber: { type: String, required: true, unique: true },
         govType: { 
             type: String, 
             enum: ['state', 'central'], 

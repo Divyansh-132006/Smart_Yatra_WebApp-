@@ -2,8 +2,6 @@ import { successResponse,errorResponse } from "../utils/Responseformatter.js";
 import Tourist from "../models/Tourist.js";
 
 // Get tourist profile by ID
-// In your Tourist controller
-// Your existing controller is perfect - no changes needed
 export const getTouristProfile = async (req, res) => {
     try {
         const touristId = req.params.id;
@@ -11,7 +9,7 @@ export const getTouristProfile = async (req, res) => {
         if (!tourist) {
             return errorResponse(res, 'Tourist not found', 404);
         }
-        return successResponse(res, 'Tourist profile retrieved successfully', tourist);
+        return successResponse(res, 'Tourist profile retrieved successfully', tourist, 200);
     } catch (error) {
         console.error("Error retrieving tourist profile:", error);
         return errorResponse(res, 'Internal server error', 500);
@@ -20,11 +18,14 @@ export const getTouristProfile = async (req, res) => {
 export const getLocation = async (req, res) => {
     try {
         const touristId = req.params.id;
-        const tourist = await Tourist.findById(touristId).select('location');
+        const tourist = await Tourist.findById(touristId).select('current_location_lat current_location_lng');
         if (!tourist) {
             return errorResponse(res, 'Tourist not found', 404);
         }
-        return successResponse(res, 'Tourist location retrieved successfully', tourist.location);
+        return successResponse(res, 'Tourist location retrieved successfully', {
+            latitude: tourist.current_location_lat,
+            longitude: tourist.current_location_lng
+        });
     }
     catch (error) {
         console.error("Error retrieving tourist location:", error);
@@ -42,9 +43,13 @@ export const updateLocation = async (req, res) => {
         if (!tourist) {
             return errorResponse(res, 'Tourist not found', 404);
         }
-        tourist.location = { latitude, longitude };
+        tourist.current_location_lat = latitude;
+        tourist.current_location_lng = longitude;
         await tourist.save();
-        return successResponse(res, 'Tourist location updated successfully', tourist.location);
+        return successResponse(res, 'Tourist location updated successfully', {
+            latitude: tourist.current_location_lat,
+            longitude: tourist.current_location_lng
+        });
     }
     catch (error) {
         console.error("Error updating tourist location:", error);
@@ -64,7 +69,7 @@ export const updatename = async (req, res) => {
         }
         tourist.name = name;
         await tourist.save();
-        return successResponse(res, 'Tourist name updated successfully', tourist.name);
+        return successResponse(res, 'Tourist name updated successfully', { name: tourist.name }, 200);
     }
     catch (error) {
         console.error("Error updating tourist name:", error);
@@ -109,7 +114,7 @@ export const updateUserProfile = async (req, res) => {
         
         // Return updated tourist without password
         const updatedTourist = await Tourist.findById(touristId).select('-password_hash');
-        return successResponse(res, 'Tourist profile updated successfully', updatedTourist);
+        return successResponse(res, 'Tourist profile updated successfully', updatedTourist, 200);
     } catch (error) {
         console.error("Error updating tourist profile:", error);
         return errorResponse(res, 'Internal server error', 500);

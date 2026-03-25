@@ -21,10 +21,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import LottieView from 'lottie-react-native';
 import { useNavigation } from '@react-navigation/native';
+import { API_ENDPOINTS } from '../../config/api';
 const { width, height } = Dimensions.get('window');
 import { Image } from 'react-native';
-
-const baseurl = 'http://10.0.2.2:3000/tourists'; // Android emulator
 
 const SignupScreenGuider = () => {
   const [email, setEmail] = useState('');
@@ -32,9 +31,7 @@ const SignupScreenGuider = () => {
   const [fullName, setFullName] = useState('');
   const [idnumber, setidnumber] = useState('');
 
-  // const [otp, setOtp] = useState('');
   const [mobile, setMobile] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
 
   const navigation = useNavigation();
@@ -103,7 +100,7 @@ const SignupScreenGuider = () => {
     console.log('Sending guider registration request:', registrationData);
 
     try {
-      const response = await fetch(`${baseurl}/register-teamlead`, {
+      const response = await fetch(API_ENDPOINTS.REGISTER_TEAMLEAD, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -173,7 +170,7 @@ const SignupScreenGuider = () => {
       <StatusBar barStyle="light-content" backgroundColor="#4A90E2" />
       <TouchableOpacity
         style={styles.backButton}
-        onPress={() => navigation.navigate('Home')}
+        onPress={() => navigation.goBack()}
       >
         <Ionicons name="arrow-back" size={24} color="#1E3A8A" />
       </TouchableOpacity>

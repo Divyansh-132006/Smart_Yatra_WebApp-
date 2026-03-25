@@ -15,11 +15,10 @@ import { Ionicons } from '@expo/vector-icons';
 import LottieView from 'lottie-react-native';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAuth } from '../../context/AuthContext'; 
+import { useAuth } from '../../context/AuthContext';
+import { API_ENDPOINTS } from '../../config/api';
 const { width, height } = Dimensions.get('window');
 import { Image } from 'react-native';
-
-const baseurl = 'http://10.10.148.57:3000/api';
 
 const LoginScreen = () => {
   const [email, setEmail] = useState('');
@@ -63,7 +62,7 @@ const LoginScreen = () => {
     console.log('Sending login request:', { email: loginData.email, role: loginData.role });
 
     try {
-      const response = await fetch(`${baseurl}/tourists/auth/login`, {
+      const response = await fetch(API_ENDPOINTS.LOGIN, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -76,14 +75,19 @@ const LoginScreen = () => {
       console.log('Login response data:', responseData);
 
       if (response.status === 200 && responseData.success) {
-        // Login successful - access nested data
-        const { token, refreshToken, user } = responseData.data;
+        // Login successful - extract data correctly
+        const { token, refreshToken, user } = responseData.data || responseData;
         
         // Store tourist_id for profile fetching
         await AsyncStorage.setItem('@tourist_id', user._id || user.id);
         
-        await login(token, refreshToken, user);
+        // Call login with proper parameters
+        if (login) {
+          await login(token, refreshToken, user);
+        }
+        
         console.log('Login successful, user authenticated');
+        // Navigation will happen automatically via AuthContext changes
         
       } else if (response.status === 400) {
         Alert.alert('Error', responseData.message || 'Invalid request');

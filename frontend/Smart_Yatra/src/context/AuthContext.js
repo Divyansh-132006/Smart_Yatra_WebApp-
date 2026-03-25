@@ -101,6 +101,11 @@ export const AuthProvider = ({ children }) => {
     checkAuthStatus();
   }, []);
 
+  // Prevent rendering children until auth check is complete
+  if (isLoading) {
+    return null;
+  }
+
   return (
     <AuthContext.Provider 
       value={{ 

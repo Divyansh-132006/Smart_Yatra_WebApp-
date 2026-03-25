@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -14,38 +14,18 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import LottieView from 'lottie-react-native';
 import { useNavigation } from '@react-navigation/native';
+import { API_ENDPOINTS } from '../../config/api';
 const { width, height } = Dimensions.get('window');
 import { Image } from 'react-native';
-
-const baseurl = 'http://10.10.148.57:3000/api';
 
 const SignupScreen = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
-  const [otp, setOtp] = useState('');
   const [mobile, setMobile] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpVerified, setOtpVerified] = useState(false);
-  const [timer, setTimer] = useState(0);
-  const [isTimerActive, setIsTimerActive] = useState(false);
-  const [otpAttempts, setOtpAttempts] = useState(0);
-  const [isRegistering, setIsRegistering] = useState(false); // Add loading state
+  const [isRegistering, setIsRegistering] = useState(false);
 
   const navigation = useNavigation();
-
-  // Timer effect for resend OTP
-  useEffect(() => {
-    let interval = null;
-    if (isTimerActive && timer > 0) {
-      interval = setInterval(() => {
-        setTimer(timer => timer - 1);
-      }, 1000);
-    } else if (timer === 0) {
-      setIsTimerActive(false);
-    }
-    return () => clearInterval(interval);
-  }, [isTimerActive, timer]);
 
   // Add email validation function
 const validateEmail = (email) => {
@@ -61,12 +41,6 @@ const validatePassword = (password) => {
   // Update the handleSignUp function with better validation
   const handleSignUp = async () => {
     // Enhanced validation
-    // Temporarily disabled OTP verification
-    // if (!otpVerified) {
-    //   Alert.alert('Verify OTP', 'Please verify your mobile number first');
-    //   return;
-    // }
-    
     if (!fullName.trim()) {
       Alert.alert('Missing Name', 'Please enter your full name');
       return;
@@ -79,6 +53,16 @@ const validatePassword = (password) => {
     
     if (!validateEmail(email)) {
       Alert.alert('Invalid Email', 'Please enter a valid email address');
+      return;
+    }
+
+    if (!mobile.trim()) {
+      Alert.alert('Missing Mobile', 'Please enter your mobile number');
+      return;
+    }
+
+    if (mobile.length < 10) {
+      Alert.alert('Invalid Mobile', 'Please enter a valid 10-digit mobile number');
       return;
     }
     
@@ -104,7 +88,7 @@ const validatePassword = (password) => {
     console.log('Sending registration request:', registrationData);
 
     try {
-      const response = await fetch(`${baseurl}/tourists/register`, {
+      const response = await fetch(API_ENDPOINTS.REGISTER, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -138,26 +122,7 @@ const validatePassword = (password) => {
          navigation.navigate('Login');
       } else if (response.status === 400) {
         // Handle validation errors
-        if (data.message && data.message.includes('All fields are required')) {
-          Alert.alert('Missing Information', 'Please fill in all required fields');
-        } else if (data.message && data.message.includes('verify your phone number')) {
-          Alert.alert(
-            'OTP Not Verified', 
-            'Please verify your phone number with OTP first',
-            [
-              { 
-                text: 'Verify Now', 
-                onPress: () => {
-                  setOtpVerified(false);
-                  setOtpSent(false);
-                  setOtp('');
-                }
-              }
-            ]
-          );
-        } else {
-          Alert.alert('Validation Error', data.message || 'Please check your input and try again');
-        }
+        Alert.alert('Validation Error', data.message || 'Please check your input and try again');
       } else if (response.status === 409) {
         // Handle conflict - user already exists
         if (data.message && data.message.includes('phone number already exists')) {
@@ -208,203 +173,6 @@ const validatePassword = (password) => {
     }
   };
 
-  const sendOtp = async () => {
-    if (mobile.length < 10) {
-      Alert.alert('Invalid Mobile', 'Please enter a valid 10-digit mobile number');
-      return;
-    }
-    
-    if (!email) {
-      Alert.alert('Missing Email', 'Please enter your email address first');
-      return;
-    }
-    
-    try {
-      const response = await fetch(`${baseurl}/tourists/sendRegistrationOTP`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          phone: mobile, 
-          email: email
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok) {
-        Alert.alert(
-          'OTP Sent!',
-          data.message || `OTP has been sent to your registered mobile number ${mobile}`,
-          [{ text: 'OK' }]
-        );
-        setOtpSent(true);
-        setTimer(60);
-        setIsTimerActive(true);
-        setOtpAttempts(0); // Reset attempts counter
-      } else {
-        Alert.alert('Error', data.message || 'Failed to send OTP');
-      }
-    } catch (error) {
-      console.error('Error sending OTP:', error);
-      Alert.alert('Error', 'Network error. Please check your connection and try again.');
-    }
-  };
-
-  const verifyOtp = async () => {
-    if (otp.length < 6) {
-      Alert.alert('Invalid OTP', 'Please enter the complete 6-digit OTP');
-      return;
-    }
-    
-    const requestData = { 
-      phone: mobile, 
-      otp: otp,
-      purpose: 'registration'
-    };
-    
-    console.log('Sending OTP verification request:', requestData); // Debug log
-    
-    try {
-      const response = await fetch(`${baseurl}/tourists/verifyOTP`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestData),
-      });
-      
-      console.log('Response status:', response.status); // Debug log
-      const data = await response.json();
-      console.log('Response data:', data); // Debug log
-      
-      if (response.status === 200 && data.verified) {
-        // OTP verified successfully
-        Alert.alert('Success', 'OTP verified successfully!');
-        setOtpVerified(true);
-        setIsTimerActive(false);
-      } else if (response.status === 400) {
-        // Handle 400 Bad Request - OTP validation errors
-        if (data.message && data.message.includes('attempts remaining')) {
-          // Extract remaining attempts from message
-          const attemptsMatch = data.message.match(/(\d+) attempts remaining/);
-          const remainingAttempts = attemptsMatch ? attemptsMatch[1] : '0';
-          Alert.alert(
-            'Invalid OTP', 
-            `Wrong OTP entered. ${remainingAttempts} attempts remaining.`
-          );
-          // Clear OTP input for retry
-          setOtp('');
-        } else if (data.message && data.message.includes('Too many failed attempts')) {
-          Alert.alert(
-            'Too Many Attempts', 
-            'You have exceeded the maximum attempts. Please request a new OTP.',
-            [{ 
-              text: 'Request New OTP', 
-              onPress: () => {
-                setOtp('');
-                setOtpSent(false);
-                setOtpVerified(false);
-                setIsTimerActive(false);
-                setTimer(0);
-              }
-            }]
-          );
-        } else if (data.message && data.message.includes('expired')) {
-          Alert.alert(
-            'OTP Expired', 
-            'Your OTP has expired. Please request a new one.',
-            [{ 
-              text: 'Request New OTP', 
-              onPress: () => {
-                setOtp('');
-                setOtpSent(false);
-                setOtpVerified(false);
-                setIsTimerActive(false);
-                setTimer(0);
-              }
-            }]
-          );
-        } else if (data.message && data.message.includes('OTP not found')) {
-          Alert.alert(
-            'OTP Not Found', 
-            'No valid OTP found. Please request a new one.',
-            [{ 
-              text: 'Request New OTP', 
-              onPress: () => {
-                setOtp('');
-                setOtpSent(false);
-                setOtpVerified(false);
-                setIsTimerActive(false);
-                setTimer(0);
-              }
-            }]
-          );
-        } else if (data.message && data.message.includes('required')) {
-          Alert.alert('Missing Information', 'Phone, OTP, and purpose are required');
-        } else {
-          // Generic 400 error - likely invalid OTP
-          Alert.alert(
-            'Invalid OTP', 
-            data.message || 'The OTP you entered is incorrect. Please try again.'
-          );
-          setOtp(''); // Clear OTP input for retry
-        }
-      } else if (response.status === 409) {
-        // Handle conflict errors (if any)
-        Alert.alert('Error', data.message || 'Conflict error occurred');
-      } else if (response.status === 500) {
-        // Handle server errors
-        Alert.alert('Server Error', 'Something went wrong on our end. Please try again later.');
-      } else {
-        // Handle other status codes
-        Alert.alert('Error', data.message || 'Failed to verify OTP. Please try again.');
-      }
-    } catch (error) {
-      console.error('Error verifying OTP:', error);
-      Alert.alert('Network Error', 'Please check your internet connection and try again.');
-    }
-  };
-
-  const resendOtp = async () => {
-    setOtp('');
-    setOtpVerified(false);
-    
-    try {
-      const response = await fetch(`${baseurl}/tourists/sendRegistrationOTP`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          phone: mobile, 
-          email: email
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok) {
-        setTimer(60);
-        setIsTimerActive(true);
-        setOtpAttempts(0);
-        Alert.alert('OTP Resent', 'A new OTP has been sent to your mobile number');
-      } else {
-        Alert.alert('Error', data.message || 'Failed to resend OTP');
-      }
-    } catch (error) {
-      console.error('Error resending OTP:', error);
-      Alert.alert('Error', 'Network error. Please try again.');
-    }
-  };
-
-  const formatTime = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
   // Add visual feedback for form validation
 const getInputStyle = (field, value) => {
   let baseStyle = [styles.textInput];
@@ -413,8 +181,6 @@ const getInputStyle = (field, value) => {
     baseStyle.push(styles.errorInput);
   } else if (field === 'password' && value && !validatePassword(value)) {
     baseStyle.push(styles.errorInput);
-  } else if (field === 'mobile' && otpVerified) {
-    baseStyle.push(styles.verifiedInput);
   }
   
   return baseStyle;
@@ -478,112 +244,37 @@ const getInputStyle = (field, value) => {
 
           <View style={styles.inputContainer}>
             <TextInput
-              style={[styles.textInput, otpVerified && styles.verifiedInput]}
+              style={styles.textInput}
               placeholder="Enter your mobile number"
               placeholderTextColor="#9CA3AF"
               value={mobile}
               onChangeText={setMobile}
               keyboardType="numeric"
               maxLength={10}
-              editable={!otpVerified}
             />
-            {otpVerified && (
-              <View style={styles.verifiedIcon}>
-                <Ionicons name="checkmark-circle" size={24} color="#10B981" />
-              </View>
-            )}
           </View>
 
-          {/* OTP Input - appears above the send/verify button */}
-          {otpSent && (
-            <View style={styles.inputContainer}>
-              <TextInput
-                style={[
-                  styles.textInput, 
-                  otpVerified && styles.verifiedInput
-                ]}
-                placeholder="Enter the 6-digit OTP"
-                placeholderTextColor="#9CA3AF"
-                value={otp}
-                onChangeText={setOtp}
-                keyboardType="numeric"
-                maxLength={6}
-                editable={!otpVerified}
-              />
-              {otpVerified && (
-                <View style={styles.verifiedIcon}>
-                  <Ionicons name="checkmark-circle" size={24} color="#10B981" />
-                </View>
-              )}
-            </View>
-          )}
-
-          {/* OTP Action Button */}
-          {!otpSent ? (
-            <TouchableOpacity
-              style={[
-                styles.otpButton, 
-                (mobile.length < 10 || !email) && styles.disabledButton
-              ]}
-              onPress={sendOtp}
-              disabled={mobile.length < 10 || !email}
-            >
-              <Text style={styles.otpButtonText}>Send OTP</Text>
-            </TouchableOpacity>
-          ) : !otpVerified ? (
-            <>
-              <TouchableOpacity
-                style={[styles.verifyButton, otp.length < 6 && styles.disabledButton]}
-                onPress={verifyOtp}
-                disabled={otp.length < 6}
-              >
-                <Text style={styles.otpButtonText}>Verify OTP</Text>
-              </TouchableOpacity>
-              
-              {/* Timer and Resend */}
-              <View style={styles.timerContainer}>
-                {isTimerActive ? (
-                  <Text style={styles.timerText}>
-                    Resend OTP in {formatTime(timer)}
-                  </Text>
-                ) : (
-                  <TouchableOpacity onPress={resendOtp}>
-                    <Text style={styles.resendText}>Resend OTP</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </>
-          ) : (
-            <View style={styles.verifiedContainer}>
-              <Ionicons name="checkmark-circle" size={24} color="#10B981" />
-              <Text style={styles.verifiedText}>Mobile number verified!</Text>
-            </View>
-          )}
-
-          {/* Password field - only show after OTP verification */}
-          {otpVerified && (
-            <View style={styles.inputContainer}>
-              <TextInput
-                style={getInputStyle('password', password)}
-                placeholder="Create Password (min 6 characters)"
-                placeholderTextColor="#9CA3AF"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-              />
-              {password && !validatePassword(password) && (
-                <Text style={styles.errorText}>Password must be at least 6 characters</Text>
-              )}
-            </View>
-          )}
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={getInputStyle('password', password)}
+              placeholder="Create Password (min 6 characters)"
+              placeholderTextColor="#9CA3AF"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+            />
+            {password && !validatePassword(password) && (
+              <Text style={styles.errorText}>Password must be at least 6 characters</Text>
+            )}
+          </View>
 
           <TouchableOpacity 
             style={[
               styles.loginButton, 
-              (!otpVerified || isRegistering) && styles.disabledButton
+              isRegistering && styles.disabledButton
             ]} 
             onPress={handleSignUp}
-            disabled={!otpVerified || isRegistering}
+            disabled={isRegistering}
           >
             <Text style={styles.signupButtonText}>
               {isRegistering ? 'Creating Account...' : 'Sign Up'}

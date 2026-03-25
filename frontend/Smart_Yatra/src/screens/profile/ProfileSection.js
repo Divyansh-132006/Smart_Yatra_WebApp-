@@ -21,10 +21,9 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import { useAuth } from '../../context/AuthContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { API_ENDPOINTS } from '../../config/api';
 
 const { width } = Dimensions.get('window');
-
-const baseurl = 'http://10.10.148.57:3000/api';
 
 // Move ProfileField outside the main component
 const ProfileField = React.memo(({ 
@@ -322,7 +321,7 @@ const ProfileSection = ({ navigation }) => {
       console.log('Fetching profile for tourist ID:', touristId);
 
       // Use the tourist ID in the URL path
-      const response = await fetch(`${baseurl}/tourists/profile/${touristId}`, {
+      const response = await fetch(API_ENDPOINTS.GET_PROFILE(touristId), {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -414,7 +413,7 @@ const ProfileSection = ({ navigation }) => {
       console.log('Updating profile with data:', finalPayload);
 
       // Use the new update endpoint
-      const response = await fetch(`${baseurl}/tourists/profile/update/${touristId}`, {
+      const response = await fetch(API_ENDPOINTS.UPDATE_PROFILE(touristId), {
         method: 'PUT',
         headers: {
           

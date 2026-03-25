@@ -199,13 +199,13 @@ export const registerTourist = async (req, res) => {
             return res.status(409).json({ message: "Tourist with this phone number already exists" });
         }
 
-        // Check if OTP was verified - Temporarily disabled
+        // OTP verification temporarily disabled for testing
+        // In production, uncomment the lines below:
         // const verifiedOTP = await OTP.findOne({ 
         //     phone, 
         //     purpose: 'registration',
         //     verified: true 
         // });
-
         // if (!verifiedOTP) {
         //     return res.status(400).json({ 
         //         message: "Please verify your phone number with OTP first" 
@@ -221,19 +221,21 @@ export const registerTourist = async (req, res) => {
     //   logger.info(`Tourist registered: ${email}`);
       
       return successResponse(res, 'Tourist registered successfully', {
+        success: true,
         token,
         refreshToken,
         user: {
           id: newTourist._id,
           name: newTourist.name,
           email: newTourist.email,
+          phone: newTourist.phone,
           role: 'tourist',
         },
-      });
+      }, 200);
     } 
     catch (error) {
         console.error("Error registering tourist:", error);
-        res.status(500).json({ message: "Internal server error" });
+        return errorResponse(res, 'Internal server error', 500);
     } 
 };
 
@@ -262,19 +264,21 @@ export const registerTeamLead = async (req, res) => {
         const refreshToken = generateRefreshToken({ id: newTeamLead._id, role: 'teamlead' });
       
       return successResponse(res, 'TeamLead registered successfully', {
+        success: true,
         token,
         refreshToken,
         user: {
           id: newTeamLead._id,
           name: newTeamLead.name,
           email: newTeamLead.email,
+          phone: newTeamLead.phone,
           role: 'teamlead',
         },
-      });
+      }, 200);
     } 
     catch (error) {
         console.error("Error registering teamlead:", error);
-        res.status(500).json({ message: "Internal server error" });
+        return errorResponse(res, 'Internal server error', 500);
     } 
 };
 
@@ -305,19 +309,21 @@ export const registerAuthority = async (req, res) => {
         const refreshToken = generateRefreshToken({ id: newAuthority._id, role: 'authority' });
       
       return successResponse(res, 'Authority registered successfully', {
+        success: true,
         token,
         refreshToken,
         user: {
           id: newAuthority._id,
           name: newAuthority.name,
           email: newAuthority.email,
+          phone: newAuthority.phone,
           role: 'authority',
         },
-      });
+      }, 200);
     } 
     catch (error) {
         console.error("Error registering authority:", error);
-        res.status(500).json({ message: "Internal server error" });
+        return errorResponse(res, 'Internal server error', 500);
     } 
 };
 
