@@ -1,5 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { configureCertificateValidation } from '../utils/httpsConfig';
+
+// 🔒 Initialize HTTPS certificate validation for development
+configureCertificateValidation();
 
 const AuthContext = createContext();
 

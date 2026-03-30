@@ -62,6 +62,93 @@ const sendSMS = async (phone, otp) => {
     }
 };
 
+const sendEmailOTP = async (email, otp) => {
+    try {
+        // Validate environment variables
+        if (!process.env.BREVO_API_KEY) {
+            console.error('❌ BREVO_API_KEY is not configured in .env');
+            return false;
+        }
+        if (!process.env.EMAIL_SENDER_ADDRESS) {
+            console.error('❌ EMAIL_SENDER_ADDRESS is not configured in .env');
+            return false;
+        }
+
+        const message = `Your Smart Yatra OTP is: ${otp}. Valid for 10 minutes. Do not share this code.`;
+
+        console.log(`📧 Attempting to send OTP to: ${email} from: ${process.env.EMAIL_SENDER_ADDRESS}`);
+
+        const data = {
+            sender: {
+                email: process.env.EMAIL_SENDER_ADDRESS,
+                name: 'Smart Yatra'
+            },
+            to: [
+                {
+                    email: email
+                }
+            ],
+            subject: 'Your Smart Yatra OTP',
+            htmlContent: `
+                <div style="font-family: Arial, sans-serif;">
+                    <h2>Smart Yatra - OTP Verification</h2>
+                    <p>Your OTP is: <strong>${otp}</strong></p>
+                    <p>Valid for 10 minutes.</p>
+                    <p>Do not share this code with anyone.</p>
+                </div>
+            `
+        };
+
+        const response = await axios.post(
+            'https://api.brevo.com/v3/smtp/email',
+            data,
+            {
+                headers: {
+                    'api-key': process.env.BREVO_API_KEY,
+                    'Content-Type': 'application/json',
+                    'accept': 'application/json'
+                },
+                timeout: 15000
+            }
+        );
+
+        if (response.status === 201 || response.status === 200) {
+            console.log(`✅ Email OTP sent successfully to ${email}`);
+            console.log('Response:', response.data);
+            return true;
+        }
+
+        console.error('❌ Brevo returned non-success status:', response.status);
+        console.error('Response data:', response.data);
+        return false;
+    } catch (error) {
+        console.error('❌ Email OTP sending failed:', error.message);
+
+        if (error.response) {
+            console.error('Brevo API Error Details:', {
+                status: error.response.status,
+                statusText: error.response.statusText,
+                data: error.response.data
+            });
+            
+            // Common API errors
+            if (error.response.status === 400) {
+                console.error('⚠️ Bad Request - Check email format and API payload');
+            } else if (error.response.status === 401) {
+                console.error('⚠️ Unauthorized - Check BREVO_API_KEY validity');
+            } else if (error.response.status === 429) {
+                console.error('⚠️ Rate Limited - Too many requests to Brevo');
+            }
+        } else if (error.request) {
+            console.error('❌ Network error - No response from Brevo API');
+        } else {
+            console.error('❌ Error setting up request:', error.message);
+        }
+
+        return false;
+    }
+};
+
 // Backend code - add success field to match frontend expectations
 export const sendRegistrationOTP = async (req, res) => {
     try {
@@ -92,11 +179,29 @@ export const sendRegistrationOTP = async (req, res) => {
             purpose: 'registration'
         });
         await newOTP.save();
-        await sendSMS(phone, otpCode);
+
+        // Send OTP via email (primary channel)
+        const emailSent = await sendEmailOTP(email, otpCode);
+
+        // Optionally send SMS if credentials are configured, but don't fail signup on SMS issues
+        if (process.env.TEXTBEE_DEVICE_ID && process.env.TEXTBEE_API_KEY) {
+            try {
+                await sendSMS(phone, otpCode);
+            } catch (smsError) {
+                console.warn('SMS OTP sending failed, continuing with email OTP only');
+            }
+        }
+
+        if (!emailSent) {
+            return res.status(500).json({
+                success: false,
+                message: "Failed to send OTP email. Please try again later."
+            });
+        }
         
         res.status(200).json({ 
             success: true, // Added success field
-            message: "OTP sent successfully to your phone number",
+            message: "OTP sent successfully to your email address",
             otpId: newOTP._id
         });
 
@@ -199,22 +304,23 @@ export const registerTourist = async (req, res) => {
             return res.status(409).json({ message: "Tourist with this phone number already exists" });
         }
 
-        // OTP verification temporarily disabled for testing
-        // In production, uncomment the lines below:
-        // const verifiedOTP = await OTP.findOne({ 
-        //     phone, 
-        //     purpose: 'registration',
-        //     verified: true 
-        // });
-        // if (!verifiedOTP) {
-        //     return res.status(400).json({ 
-        //         message: "Please verify your phone number with OTP first" 
-        //     });
-        // }
+        const verifiedOTP = await OTP.findOne({ 
+            phone, 
+            purpose: 'registration',
+            verified: true 
+        });
+        if (!verifiedOTP) {
+            return res.status(400).json({ 
+                message: "Please verify your email/phone with OTP first" 
+            });
+        }
 
         const password_hash = await bcrypt.hash(password, 10);
         const newTourist = new Tourist({ name, email, phone, password_hash });
         await newTourist.save();
+
+        // Clean up used OTP
+        await OTP.deleteMany({ phone, purpose: 'registration' });
         const token = generateToken({ id: newTourist._id, role: 'tourist' });
         const refreshToken = generateRefreshToken({ id: newTourist._id, role: 'tourist' });
 
@@ -350,26 +456,36 @@ export const loginTourist = async (req, res) => {
           break;
         case 'authority':
           Model = Authority;
-          passwordField = 'password_hash'; // Assuming Authority also uses password_hash
+          passwordField = 'password_hash';
           break;
         default:
-          return errorResponse(res, 'Invalid role', 400);
+          return errorResponse(res, 'Invalid credentials', 401); // Generic message
       }
 
       user = await Model.findOne({ email });
+      
+      // 🔒 SECURITY FIX: Do NOT reveal if user exists or password is wrong
+      // Return same generic message for both scenarios
+      const invalidCredentialsMessage = 'Invalid email or password';
+      
       if (!user) {
-        return errorResponse(res, 'User not found', 404);
+        // User not found - but don't say that!
+        console.warn(`⚠️ Login attempt with non-existent email: ${email}`);
+        return errorResponse(res, invalidCredentialsMessage, 401);
       }
 
       // Check if password field exists and has a value
       if (!user[passwordField]) {
-        console.error(`Password field '${passwordField}' is missing or empty for user:`, user.email);
-        return errorResponse(res, 'Invalid credentials', 401);
+        console.error(`Password field '${passwordField}' is missing for user:`, user.email);
+        return errorResponse(res, invalidCredentialsMessage, 401);
       }
 
       const isPasswordValid = await bcrypt.compare(password, user[passwordField]);
+      
       if (!isPasswordValid) {
-        return errorResponse(res, 'Invalid credentials', 401);
+        console.warn(`⚠️ Failed login attempt for user: ${email}`);
+        // Wrong password - same message as user not found
+        return errorResponse(res, invalidCredentialsMessage, 401);
       }
 
       // Update last login for tourists
@@ -380,6 +496,8 @@ export const loginTourist = async (req, res) => {
 
       const token = generateToken({ id: user._id, role });
       const refreshTokenValue = generateRefreshToken({ id: user._id, role });
+
+      console.log(`✅ Successful login for user: ${email}`);
 
       return successResponse(res, 'Login successful', {
         token,

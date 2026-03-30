@@ -24,6 +24,11 @@ const SignupScreen = () => {
   const [fullName, setFullName] = useState('');
   const [mobile, setMobile] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [isOtpSent, setIsOtpSent] = useState(false);
+  const [isOtpVerified, setIsOtpVerified] = useState(false);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
 
   const navigation = useNavigation();
 
@@ -38,7 +43,6 @@ const validatePassword = (password) => {
   return password.length >= 6;
 };
 
-  // Update the handleSignUp function with better validation
   const handleSignUp = async () => {
     // Enhanced validation
     if (!fullName.trim()) {
@@ -73,6 +77,11 @@ const validatePassword = (password) => {
     
     if (!validatePassword(password)) {
       Alert.alert('Weak Password', 'Password must be at least 6 characters long');
+      return;
+    }
+
+    if (!isOtpVerified) {
+      Alert.alert('OTP Not Verified', 'Please verify the OTP sent to your email before creating your account.');
       return;
     }
 
@@ -268,13 +277,137 @@ const getInputStyle = (field, value) => {
             )}
           </View>
 
+          {isOtpVerified ? (
+            <View style={styles.verifiedContainer}>
+              <Ionicons name="checkmark-circle" size={20} color="#10B981" />
+              <Text style={styles.verifiedText}>Email OTP verified</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Enter 6-digit OTP sent to your email"
+                  placeholderTextColor="#9CA3AF"
+                  value={otp}
+                  onChangeText={setOtp}
+                  keyboardType="numeric"
+                  maxLength={6}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.otpButton,
+                  (isSendingOtp || !email || !mobile || !validateEmail(email) || mobile.length < 10) && styles.disabledButton,
+                ]}
+                onPress={async () => {
+                  if (!fullName.trim()) {
+                    Alert.alert('Missing Name', 'Please enter your full name');
+                    return;
+                  }
+                  if (!email.trim() || !validateEmail(email)) {
+                    Alert.alert('Invalid Email', 'Please enter a valid email address');
+                    return;
+                  }
+                  if (!mobile.trim() || mobile.length < 10) {
+                    Alert.alert('Invalid Mobile', 'Please enter a valid 10-digit mobile number');
+                    return;
+                  }
+
+                  setIsSendingOtp(true);
+                  try {
+                    const response = await fetch(API_ENDPOINTS.SEND_OTP, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        phone: mobile,
+                        email: email.trim().toLowerCase(),
+                      }),
+                    });
+
+                    const data = await response.json();
+                    if (response.status === 200 && data.success) {
+                      setIsOtpSent(true);
+                      Alert.alert('OTP Sent', 'We have sent an OTP to your email address.');
+                    } else {
+                      Alert.alert('OTP Error', data.message || 'Failed to send OTP. Please try again.');
+                    }
+                  } catch (error) {
+                    console.error('Error sending OTP:', error);
+                    Alert.alert('Network Error', 'Unable to send OTP. Please check your connection and try again.');
+                  } finally {
+                    setIsSendingOtp(false);
+                  }
+                }}
+                disabled={isSendingOtp}
+              >
+                <Text style={styles.otpButtonText}>
+                  {isSendingOtp ? 'Sending OTP...' : isOtpSent ? 'Resend OTP' : 'Send OTP to Email'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.verifyButton,
+                  (!otp || otp.length !== 6 || isVerifyingOtp) && styles.disabledButton,
+                ]}
+                onPress={async () => {
+                  if (!isOtpSent) {
+                    Alert.alert('OTP Required', 'Please request an OTP first.');
+                    return;
+                  }
+                  if (!otp || otp.length !== 6) {
+                    Alert.alert('Invalid OTP', 'Please enter the 6-digit OTP sent to your email.');
+                    return;
+                  }
+
+                  setIsVerifyingOtp(true);
+                  try {
+                    const response = await fetch(API_ENDPOINTS.VERIFY_OTP, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({
+                        phone: mobile,
+                        otp,
+                        purpose: 'registration',
+                      }),
+                    });
+
+                    const data = await response.json();
+                    if (response.status === 200 && data.success) {
+                      setIsOtpVerified(true);
+                      Alert.alert('Success', 'OTP verified successfully. You can now create your account.');
+                    } else {
+                      Alert.alert('Verification Failed', data.message || 'OTP verification failed. Please try again.');
+                    }
+                  } catch (error) {
+                    console.error('Error verifying OTP:', error);
+                    Alert.alert('Network Error', 'Unable to verify OTP. Please check your connection and try again.');
+                  } finally {
+                    setIsVerifyingOtp(false);
+                  }
+                }}
+                disabled={!otp || otp.length !== 6 || isVerifyingOtp}
+              >
+                <Text style={styles.otpButtonText}>
+                  {isVerifyingOtp ? 'Verifying OTP...' : 'Verify OTP'}
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
+
           <TouchableOpacity 
             style={[
               styles.loginButton, 
-              isRegistering && styles.disabledButton
+              (isRegistering || !isOtpVerified) && styles.disabledButton
             ]} 
             onPress={handleSignUp}
-            disabled={isRegistering}
+            disabled={isRegistering || !isOtpVerified}
           >
             <Text style={styles.signupButtonText}>
               {isRegistering ? 'Creating Account...' : 'Sign Up'}

@@ -5,7 +5,9 @@
   "main": "src/server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "generate-certs": "node generate-certs.js",
+    "setup-https": "npm run generate-certs && npm run dev"
   },
   "author": "Rohit Giri",
   "license": "ISC",
@@ -15,6 +17,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.2",
     "express": "^5.1.0",
+    "express-rate-limit": "^7.5.1",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.19.0",
     "mongoose": "^8.23.0",

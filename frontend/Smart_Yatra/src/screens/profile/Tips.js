@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,59 +9,214 @@ import {
   StyleSheet,
   Dimensions,
   ActivityIndicator,
+  SafeAreaView,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient'; // If using Expo
-// For non-Expo: import LinearGradient from 'react-native-linear-gradient';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
 
 const { width } = Dimensions.get('window');
 
-const Tips = ({ location = 'Delhi' }) => {
+// 🔑 Common Gemini API Key (Shared for all users)
+const GEMINI_API_KEY = 'AIzaSyBJBYJY0Jay2thMpTR679o5hmhqArYYvfE';
+
+// Gemini API Integration
+const generateTipsUsingGemini = async (apiKey, location, latitude, longitude) => {
+  if (!apiKey || apiKey === 'YOUR_API_KEY') {
+    throw new Error('API Key not configured properly');
+  }
+
+  try {
+    const locationContext = `Location: ${location} (Coordinates: ${latitude?.toFixed(4)}, ${longitude?.toFixed(4)})`;
+    
+    const prompt = `You are a travel safety expert. Generate 3 specific, actionable, and practical safety/travel tips for someone currently traveling in ${locationContext}. 
+
+The tips should be:
+1. Location-specific (relevant to the area's geography, culture, and current conditions)
+2. Safe and practical for travelers
+3. Based on local knowledge
+
+Format your response as exactly 3 numbered tips, each on a new line. Be concise (max 100 chars per tip).`;
+
+    console.log('🔄 Calling Gemini API with location:', location);
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: prompt
+          }]
+        }]
+      }),
+    });
+
+    console.log('✅ Response Status:', response.status);
+
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error?.message || errorData.message || errorMessage;
+        console.error('API Error Data:', errorData);
+      } catch (e) {
+        const text = await response.text();
+        console.error('Error Response:', text);
+      }
+      throw new Error(`Gemini API Error: ${errorMessage}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ Gemini Response:', data);
+    
+    if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+      const text = data.candidates[0].content.parts[0].text;
+      console.log('📝 Generated Text:', text);
+      
+      // Parse the numbered tips
+      const tips = text.split('\n')
+        .filter(line => line.trim().match(/^\d+\./))
+        .map(line => line.replace(/^\d+\.\s*/, '').trim())
+        .filter(tip => tip.length > 0);
+      
+      if (tips.length > 0) {
+        console.log('✅ Parsed Tips:', tips);
+        return tips;
+      }
+      console.log('⚠️ No numbered tips found, returning full text');
+      return [text.trim()];
+    }
+
+    throw new Error('No response content from Gemini API');
+  } catch (error) {
+    console.error('❌ Gemini API Error:', error);
+    throw error;
+  }
+};
+
+// Get reverse geocoding data
+const getLocationName = async (latitude, longitude) => {
+  try {
+    const result = await Location.reverseGeocodeAsync({
+      latitude,
+      longitude,
+    });
+    
+    if (result && result[0]) {
+      const { city, region, country } = result[0];
+      return `${city || region || 'Unknown'}, ${country || ''}`.trim();
+    }
+    return `${latitude.toFixed(2)}, ${longitude.toFixed(2)}`;
+  } catch (error) {
+    console.error('Geocoding error:', error);
+    return `${latitude.toFixed(2)}, ${longitude.toFixed(2)}`;
+  }
+};
+
+const Tips = ({ userLocation = null }) => {
   const [tip, setTip] = useState('');
+  const [tips, setTips] = useState([]);
+  const [currentTipIndex, setCurrentTipIndex] = useState(0);
   const [newTip, setNewTip] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [userTips, setUserTips] = useState([]);
+  const [locationName, setLocationName] = useState('Getting location...');
+  const [hasGeneratedTips, setHasGeneratedTips] = useState(false);
 
-  const tipsData = {
-    Delhi: [
-      'Avoid peak hours near Connaught Place (8-10 AM, 6-8 PM)',
-      'Use Delhi Metro for faster commute during rush hours',
-      'Carry water bottle, Delhi can get very hot in summer',
-      'Best time to visit Red Fort is early morning',
-    ],
-    Mumbai: [
-      'Stay hydrated, humidity is high in coastal areas',
-      'Local trains are fastest but crowded during peak hours',
-      'Try street food at Mohammed Ali Road for authentic experience',
-      'Monsoon season (June-September) can cause heavy flooding',
-    ],
-    Shillong: [
-      'Drive carefully on hilly roads, fog is common',
-      'Carry warm clothes even in summer, nights can be cold',
-      'Best time to visit is March to June',
-      'Try local Khasi cuisine at Police Bazaar',
-    ],
-  };
+  // Initialize on component mount - ONLY ONCE
+  useEffect(() => {
+    getLocationData();
+  }, []);
 
-  const locationEmojis = {
-    Delhi: '🏛',
-    Mumbai: '🌊',
-    Shillong: '⛰',
-  };
+  // Auto-generate tips ONLY when location name is set (not on every location update)
+  useEffect(() => {
+    if (locationName && !hasGeneratedTips && userLocation?.latitude) {
+      handleGenerateTip();
+      setHasGeneratedTips(true);
+    }
+  }, [locationName]);
 
-  const handleShowTip = () => {
-    setLoading(true);
-    // Simulate loading delay for better UX
-    setTimeout(() => {
-      const tips = tipsData[location];
-      if (tips && tips.length > 0) {
-        const randomTip = tips[Math.floor(Math.random() * tips.length)];
-        setTip(randomTip);
+  const getLocationData = async () => {
+    try {
+      if (userLocation?.latitude && userLocation?.longitude) {
+        console.log('✅ Tips received location:', userLocation);
+        const name = await getLocationName(userLocation.latitude, userLocation.longitude);
+        console.log('✅ Tips location name:', name);
+        setLocationName(name);
       } else {
-        setTip('No tips available for this location yet. Be the first to share one!');
+        console.log('⚠️ Tips: No valid location yet');
+        setLocationName('Location not available');
       }
+    } catch (error) {
+      console.error('❌ Error getting location data:', error);
+      setLocationName('Unable to determine location');
+    }
+  };
+
+  const handleGenerateTip = useCallback(async () => {
+    if (!userLocation?.latitude || !userLocation?.longitude) {
+      Alert.alert('Location Required', 'Please enable location services to generate tips.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Validate location name is not still loading
+      if (locationName === 'Getting location...') {
+        Alert.alert('Please Wait', 'Still getting your location. Try again in a moment.');
+        setLoading(false);
+        return;
+      }
+
+      const generatedTips = await generateTipsUsingGemini(
+        GEMINI_API_KEY,
+        locationName,
+        userLocation.latitude,
+        userLocation.longitude
+      );
+      
+      setTips(generatedTips);
+      setCurrentTipIndex(0);
+      setTip(generatedTips[0]);
+      
+      Alert.alert('✅ Tips Generated', `Generated ${generatedTips.length} AI-powered safety tips!`);
+    } catch (error) {
+      console.error('Full Error Details:', error);
+      const errorMsg = error?.message || 'Unknown error occurred';
+      
+      // Fallback tips if API fails
+      const fallbackTips = [
+        '🔒 Stay in well-lit, populated areas. Avoid traveling alone at night.',
+        '📞 Save local emergency numbers and share your location with trusted contacts.',
+        '💳 Keep valuables secure. Use only ATMs in safe, monitored locations.'
+      ];
+      
+      setTips(fallbackTips);
+      setCurrentTipIndex(0);
+      setTip(fallbackTips[0]);
+      
+      Alert.alert(
+        '⚠️ Using Default Tips',
+        `API Error: ${errorMsg}\n\nShowing general safety tips instead.`,
+        [
+          { text: 'Retry API', onPress: handleGenerateTip },
+          { text: 'OK', style: 'default' }
+        ]
+      );
+    } finally {
       setLoading(false);
-    }, 500);
+    }
+  }, [userLocation, locationName]);
+
+  const getNextTip = () => {
+    if (tips.length > 0) {
+      const nextIndex = (currentTipIndex + 1) % tips.length;
+      setCurrentTipIndex(nextIndex);
+      setTip(tips[nextIndex]);
+    }
   };
 
   const handleSubmitTip = async () => {
@@ -72,140 +227,150 @@ const Tips = ({ location = 'Delhi' }) => {
 
     setSubmitting(true);
     
-    // Simulate API call
     setTimeout(() => {
       const tipData = {
         id: Date.now(),
         text: newTip.trim(),
-        location: location,
+        location: locationName,
         timestamp: new Date().toLocaleDateString(),
       };
       
       setUserTips(prev => [tipData, ...prev]);
-      console.log('New tip submitted:', tipData);
       
       Alert.alert(
         'Success! 🎉',
-        'Thank you for sharing your tip! Other travelers will find it helpful.',
+        'Thank you for sharing your local knowledge! Other travelers will find it helpful.',
         [{ text: 'Great!', style: 'default' }]
       );
       
       setNewTip('');
       setSubmitting(false);
-    }, 1000);
+    }, 800);
   };
-
-  const getNewTip = () => {
-    handleShowTip();
-  };
-
-  useEffect(() => {
-    handleShowTip();
-  }, [location]);
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header Section */}
-      <LinearGradient
-        colors={['#667eea', '#764ba2']}
-        style={styles.header}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
-        <Text style={styles.headerTitle}>
-          {locationEmojis[location]} Travel Tips
-        </Text>
-        <Text style={styles.headerSubtitle}>for {location}</Text>
-      </LinearGradient>
+    <SafeAreaView style={styles.container}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        {/* Header Section */}
+        <LinearGradient
+          colors={['#667eea', '#764ba2']}
+          style={styles.header}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <Text style={styles.headerTitle}>✨ Smart Travel Tips</Text>
+          <Text style={styles.headerSubtitle}>AI-Powered by Gemini</Text>
+          <Text style={styles.locationTag}>📍 {locationName}</Text>
+        </LinearGradient>
 
-      {/* Current Tip Section */}
-      <View style={styles.tipSection}>
-        <View style={styles.tipHeader}>
-          <Text style={styles.sectionTitle}>💡 Tip of the Moment</Text>
-          <TouchableOpacity 
-            style={styles.refreshButton}
-            onPress={getNewTip}
-            disabled={loading}
-          >
-            <Text style={styles.refreshButtonText}>
-              {loading ? '⏳' : '🔄'}
+        {/* AI Tips Section */}
+        <View style={styles.tipSection}>
+          <View style={styles.tipHeader}>
+            <Text style={styles.sectionTitle}>💡 AI Tips for {locationName}</Text>
+            <TouchableOpacity 
+              style={[styles.refreshButton, loading && styles.refreshButtonDisabled]}
+              onPress={handleGenerateTip}
+              disabled={loading}
+            >
+              <Text style={styles.refreshButtonText}>
+                {loading ? '⏳' : '🤖'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+            {tips.length > 0 ? (
+              <>
+                <View style={styles.tipCard}>
+                  {loading ? (
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator size="small" color="#667eea" />
+                      <Text style={styles.loadingText}>Generating AI tips...</Text>
+                    </View>
+                  ) : (
+                    <>
+                      <View style={styles.tipIndicator}>
+                        <Text style={styles.tipNumber}>{currentTipIndex + 1}/{tips.length}</Text>
+                      </View>
+                      <Text style={styles.tipText}>{tip}</Text>
+                    </>
+                  )}
+                </View>
+                
+                {tips.length > 1 && (
+                  <TouchableOpacity style={styles.nextButton} onPress={getNextTip}>
+                    <Text style={styles.nextButtonText}>Next Tip →</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            ) : (
+              <View style={styles.emptyTipsCard}>
+                <Text style={styles.emptyTipsText}>Tap the 🤖 button to generate AI-powered tips for your location</Text>
+              </View>
+            )}
+          </View>
+
+        {/* Share Your Tip Section */}
+        <View style={styles.shareSection}>
+          <Text style={styles.sectionTitle}>✍ Share Local Knowledge</Text>
+          <Text style={styles.shareSubtitle}>
+            Help other travelers with insider tips about {locationName}
+          </Text>
+          
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Share a helpful tip for travelers..."
+              placeholderTextColor="#999"
+              value={newTip}
+              onChangeText={setNewTip}
+              multiline={true}
+              textAlignVertical="top"
+              maxLength={200}
+            />
+            <Text style={styles.charCount}>
+              {newTip.length}/200
             </Text>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+            onPress={handleSubmitTip}
+            disabled={submitting}
+          >
+            <LinearGradient
+              colors={submitting ? ['#ccc', '#aaa'] : ['#56ab2f', '#a8e6cf']}
+              style={styles.submitButtonGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              {submitting ? (
+                <View style={styles.submittingContainer}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.submitButtonText}>Submitting...</Text>
+                </View>
+              ) : (
+                <Text style={styles.submitButtonText}>🚀 Share Tip</Text>
+              )}
+            </LinearGradient>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.tipCard}>
-          {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#667eea" />
-              <Text style={styles.loadingText}>Getting a fresh tip...</Text>
-            </View>
-          ) : (
-            <Text style={styles.tipText}>{tip}</Text>
-          )}
-        </View>
-      </View>
-
-      {/* Share Tip Section */}
-      <View style={styles.shareSection}>
-        <Text style={styles.sectionTitle}>✍ Share Your Experience</Text>
-        <Text style={styles.shareSubtitle}>
-          Help fellow travelers with your local knowledge
-        </Text>
-        
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.textInput}
-            placeholder={`Share a helpful tip for travelers in ${location}...`}
-            placeholderTextColor="#999"
-            value={newTip}
-            onChangeText={setNewTip}
-            multiline={true}
-            textAlignVertical="top"
-            maxLength={200}
-          />
-          <Text style={styles.charCount}>
-            {newTip.length}/200
-          </Text>
-        </View>
-
-        <TouchableOpacity
-          style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
-          onPress={handleSubmitTip}
-          disabled={submitting}
-        >
-          <LinearGradient
-            colors={submitting ? ['#ccc', '#aaa'] : ['#56ab2f', '#a8e6cf']}
-            style={styles.submitButtonGradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          >
-            {submitting ? (
-              <View style={styles.submittingContainer}>
-                <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.submitButtonText}>Submitting...</Text>
+        {/* User Tips History */}
+        {userTips.length > 0 && (
+          <View style={styles.historySection}>
+            <Text style={styles.sectionTitle}>📝 Your Tips</Text>
+            {userTips.map((userTip) => (
+              <View key={userTip.id} style={styles.userTipCard}>
+                <Text style={styles.userTipText}>{userTip.text}</Text>
+                <Text style={styles.userTipDate}>{userTip.timestamp}</Text>
               </View>
-            ) : (
-              <Text style={styles.submitButtonText}>🚀 Submit Tip</Text>
-            )}
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
+            ))}
+          </View>
+        )}
 
-      {/* User Tips History */}
-      {userTips.length > 0 && (
-        <View style={styles.historySection}>
-          <Text style={styles.sectionTitle}>📝 Your Recent Tips</Text>
-          {userTips.map((userTip) => (
-            <View key={userTip.id} style={styles.userTipCard}>
-              <Text style={styles.userTipText}>{userTip.text}</Text>
-              <Text style={styles.userTipDate}>{userTip.timestamp}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-
-      <View style={styles.footer} />
-    </ScrollView>
+        <View style={styles.footer} />
+      </ScrollView>
+    </SafeAreaView>
   );
 };
 
@@ -233,6 +398,39 @@ const styles = StyleSheet.create({
     color: '#e8e8e8',
     textAlign: 'center',
     fontWeight: '300',
+    marginBottom: 10,
+  },
+  locationTag: {
+    fontSize: 14,
+    color: '#fff',
+    textAlign: 'center',
+    opacity: 0.9,
+  },
+  setupCard: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    padding: 20,
+    backgroundColor: '#FFF3CD',
+    borderRadius: 15,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FFB800',
+  },
+  setupCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#856404',
+    marginBottom: 8,
+  },
+  setupCardText: {
+    fontSize: 14,
+    color: '#856404',
+    marginBottom: 12,
+    lineHeight: 20,
+  },
+  setupCardButton: {
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '600',
   },
   tipSection: {
     paddingHorizontal: 20,
@@ -262,6 +460,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
+  refreshButtonDisabled: {
+    opacity: 0.6,
+  },
   refreshButtonText: {
     fontSize: 18,
   },
@@ -276,12 +477,26 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     borderLeftWidth: 4,
     borderLeftColor: '#667eea',
+    marginBottom: 12,
+  },
+  tipIndicator: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+    marginBottom: 12,
+  },
+  tipNumber: {
+    fontSize: 12,
+    color: '#667eea',
+    fontWeight: '600',
   },
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
+    paddingVertical: 15,
   },
   loadingText: {
     marginLeft: 10,
@@ -293,6 +508,36 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     color: '#333',
     fontWeight: '400',
+  },
+  emptyTipsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    padding: 20,
+    alignItems: 'center',
+    elevation: 2,
+    borderLeftWidth: 4,
+    borderLeftColor: '#f0f0f0',
+  },
+  emptyTipsText: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  nextButton: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#667eea',
+  },
+  nextButtonText: {
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '600',
   },
   shareSection: {
     paddingHorizontal: 20,
@@ -387,7 +632,118 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   footer: {
-    height: 20,
+    height: 30,
+  },
+  
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 30,
+    width: '100%',
+    maxWidth: 400,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  modalClose: {
+    position: 'absolute',
+    top: 15,
+    right: 15,
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseText: {
+    fontSize: 24,
+    color: '#999',
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 15,
+    lineHeight: 20,
+  },
+  modalLink: {
+    color: '#667eea',
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  getKeyButton: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    marginBottom: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#667eea',
+  },
+  getKeyButtonText: {
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '600',
+  },
+  modalInput: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 15,
+    fontSize: 13,
+    minHeight: 80,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    color: '#333',
+    marginBottom: 20,
+    textAlignVertical: 'top',
+  },
+  modalButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 10,
+    elevation: 3,
+  },
+  modalButtonGradient: {
+    paddingVertical: 16,
+    paddingHorizontal: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalButtonSecondary: {
+    backgroundColor: '#fee',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 30,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#fcc',
+  },
+  modalButtonSecondaryText: {
+    color: '#c66',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 
